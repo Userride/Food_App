@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
@@ -30,3 +31,5 @@ const mongoDB = async () => {
 };
 
 module.exports = mongoDB;
+
+
