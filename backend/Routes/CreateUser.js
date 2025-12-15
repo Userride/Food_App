@@ -1,102 +1,100 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User'); // Import the User model
-const { body, validationResult } = require('express-validator'); // Import validation functions from express-validator
+const { body, validationResult } = require('express-validator'); // Import validation functions
 const bcrypt = require('bcryptjs'); // Import bcrypt for password hashing
 const jwt = require('jsonwebtoken'); // Import jsonwebtoken for JWT
 
-const JWT_SECRET = 'qwertyuiopasdfghjklzxcvbnbnm'; // Replace with your own secret key
+const JWT_SECRET = process.env.JWT_SECRET || 'qwertyuiopasdfghjklzxcvbnbnm'; // Secret key
 
-
-
-// Code for signup
-router.post('/createuser', [
-    // Validate and sanitize input
+// **Signup Endpoint**
+router.post(
+  '/createuser',
+  [
     body('name').isLength({ min: 5 }).withMessage('Name must be at least 5 characters long'),
     body('email').isEmail().withMessage('Please enter a valid email address'),
-    body('password').isLength({ min: 5 }).withMessage('Password must be at least 5 characters long')
-], async (req, res) => {
-    // Check for validation errors
+    body('password').isLength({ min: 5 }).withMessage('Password must be at least 5 characters long'),
+  ],
+  async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ errors: errors.array() });
     }
 
     try {
-        // Generate a salt for hashing the password
-        const salt = await bcrypt.genSalt(10);
-        // Hash the password using the salt
-        const hashedPassword = await bcrypt.hash(req.body.password, salt);
+      // Check if the user already exists
+      const existingUser = await User.findOne({ email: req.body.email });
+      if (existingUser) {
+        return res.status(400).json({ errors: [{ msg: 'Email is already registered.' }] });
+      }
 
-        // Create a new user with the provided and hashed information
-        const user = await User.create({
-            name: req.body.name,
-            password: hashedPassword,
-            email: req.body.email,
-            location: req.body.location
-        });
+      // Hash the password and create a new user
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(req.body.password, salt);
 
-        // Generate JWT token
-        const data = {
-            user: {
-                id: user.id
-            }
-        };
-        const authToken = jwt.sign(data, JWT_SECRET);
+      const user = await User.create({
+        name: req.body.name,
+        email: req.body.email,
+        password: hashedPassword,
+        location: req.body.location || '',
+      });
 
-        // Respond with success and the token
-        res.json({ success: true, authToken:authToken});
+      // Generate a JWT token
+      const data = { user: { id: user.id } };
+      const authToken = jwt.sign(data, JWT_SECRET);
+
+      // *** FIX: Send back the userId along with the token ***
+      res.status(201).json({ success: true, authToken, userId: user.id });
+
     } catch (error) {
-        console.error(error);
-        res.json({ success: false });
+      console.error('Error during signup:', error);
+      res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
-});
+  }
+);
 
 
-
-// Code for login
-router.post('/loginuser', [
-    // Validate and sanitize input
+// **Login Endpoint**
+router.post(
+  '/loginuser',
+  [
     body('email').isEmail().withMessage('Please enter a valid email address'),
-    body('password').isLength({ min: 5 }).withMessage('Password must be at least 5 characters long')
-], async (req, res) => {
-    // Check for validation errors
+    body('password').isLength({ min: 5 }).withMessage('Password must be at least 5 characters long'),
+  ],
+  async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+      console.log('Validation errors:', errors.array());
+      return res.status(400).json({ errors: errors.array() });
     }
 
-    let email = req.body.email;
+    const { email, password } = req.body;
+
     try {
-        // Find the user by email
-        let userData = await User.findOne({ email });
-        if (!userData) {
-            // If user is not found, respond with an error
-            return res.status(400).json({ errors: "Try logging in with correct email id" });
-        }
+      // Check if user exists
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res.status(400).json({ errors: 'Invalid email or password.' });
+      }
 
-        // Compare the provided password with the stored hashed password
-        const isMatch = await bcrypt.compare(req.body.password, userData.password);
-        if (!isMatch) {
-            // If passwords do not match, respond with an error
-            return res.status(400).json({ errors: "Try logging in with correct password" });
-        }
+      // Compare passwords
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(400).json({ errors: 'Invalid email or password.' });
+      }
 
-        // Generate JWT token
-        const data = {
-            user: {
-                id: userData.id
-            }
-        };
-        const authToken = jwt.sign(data, JWT_SECRET);
+      // Generate JWT token
+      const data = { user: { id: user.id } };
+      const authToken = jwt.sign(data, JWT_SECRET);
 
-        // If login is successful, respond with success and the token
-        return res.json({ success: true, authToken });
+      // *** FIX: Send back the userId along with the token ***
+      res.status(200).json({ success: true, authToken, userId: user.id });
 
     } catch (error) {
-        console.error(error);
-        res.json({ success: false });
+      console.error('Error during login:', error);
+      res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
-});
+  }
+);
 
 module.exports = router;
